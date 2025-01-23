@@ -1,0 +1,330 @@
+---
+title: "Lab 3 Key"
+author: "Nathaniel Grimes"
+format: 
+  html:
+    code-fold: show
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+## Load in data and packages
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(here)
+
+t_df<-read_csv(here("data", "titanic_survival.csv"))
+```
+
+
+## ML Framework
+
+Write a description of how you go about applying machine learning problems. If you drew a diagram, share with a neighbor and discuss.
+
+1. Research Question
+
+2. Data Exploration/Cleaning
+
+3. Data Split
+
+4. Build Models
+
+    a. Data Preprocessing
+
+    b. Train Model
+  
+    c. Tune
+  
+    d. Evaluate Performance
+  
+    e. Model Selection
+  
+6. Finzalize Model
+
+7. Interpret and Visualize Results
+
+
+## Tidymodels Overview
+
+The creators of `tidyverse` have created a new package called `tidymodels` that is designed to make machine learning more accessible to R users. The package is designed to work with the `tidyverse` and `tidydata` principles. 
+
+
+## Defining a Research Question
+
+What are we trying to solve? The crucial step of any scientist that can take years to define and perfect.
+
+**What factors led to the survival of passengers on the Titanic?**
+
+How will go about solving our question? Use a classification algorithm to predict the survival of passengers on the Titanic. Interpret the variables that control observed outcomes.
+
+In real life, we would have to go out and collect the data. Today, we will use the `titanic` dataset from the `titanic` package. 
+
+
+## Data Exploration/Cleaning
+
+Take 15 minutes to explore the data. Are there any immediate changes to the data that we need to change? What relationships can you see through graphs? What variables could be of interest to predict survival of passengers on the Titanic?
+
+```{r}
+surv_df <- t_df %>%
+  mutate(survived = factor(survived),   ### categorical outcome variables need to be factors
+         pclass   = factor(pclass)) %>% ### turn some predictors to factor
+  select(-cabin, -ticket) ### lots of NAs here - and not likely to be very helpful
+```
+
+Here are some quick examples that I did.
+
+
+```{r}
+ggplot(surv_df, aes(x = pclass, fill = survived)) +
+  geom_bar()
+```
+
+
+
+```{r}
+ggplot(surv_df, aes(x = age, fill = survived)) +
+  geom_histogram()
+```
+
+## Data Split
+
+We will set aside (“partition”) a portion of the data for building and comparing our models (80%), and a portion for testing our models after we’ve selected the best one (20%). NOT the same as folds - that will happen in the training/validation step.
+
+```{r}
+### Check balance of survived column
+surv_df %>%
+  group_by(survived) %>%
+  summarize(n = n()) %>%
+  ungroup() %>%
+  mutate(prop = n / sum(n))
+```
+Tidymodels will split the data and label it for us.
+
+```{r}
+set.seed(123)
+
+surv_split <- initial_split(surv_df, prop = 0.80,strata = survived)
+  ### stratified on `survived`; training and test splits will both have ~60/40% survived = 0/1
+surv_train_df <- training(surv_split)
+surv_test_df <- testing(surv_split)
+
+```
+
+Check to make sure the data has the same proportion of splits. Why is it important to maintain the same proportion of splits?
+
+```{r}
+surv_train_df %>%
+  group_by(survived) %>%
+  summarize(n = n()) %>%
+  ungroup() %>%
+  mutate(prop = n / sum(n))
+
+surv_test_df %>%
+  group_by(survived) %>%
+  summarize(n = n()) %>%
+  ungroup() %>%
+  mutate(prop = n / sum(n))
+```
+
+
+
+## Model Building
+
+Constructing models in `tidymodels` is frighteningly simple. We tell R which kind of algorithm we want to build (model), what package the algorithm should come from (engine), and how to construct it.
+
+```{r}
+log_md <- logistic_reg() %>%
+  set_engine("glm")
+
+lasso_md<- logistic_reg(penalty = 0.037,mixture=1) %>%
+  set_engine("glmnet")
+```
+
+### Data Preprocessing
+
+We use receipes to convert our data into the format best suited to our chosen models. Basically we tell R to *consistently* transform our data between all training and testing sets. [This prevents data leakage and ensures that our models are trained on the same data](https://en.wikipedia.org/wiki/Leakage_(machine_learning)). 
+
+We're going to build two models: a logistic regression and a lasso logistic regression model. 
+
+```{r}
+glm_rec<-recipe(survived ~ sex + pclass, data = surv_train_df)
+
+# steps we need to do to prepare data for lasso
+
+lasso_rec<-recipe(survived~.,data=surv_train_df) %>%
+  update_role(passenger_id, new_role = "ID") %>%
+  step_rm(name,age) %>%
+  step_unknown(all_nominal(),-all_outcomes()) |> 
+  step_dummy(all_nominal(),-all_outcomes()) |>
+  step_zv(all_numeric(),-all_outcomes()) |> 
+  step_normalize(all_numeric(),-all_outcomes())
+
+```
+
+
+### Train Model
+
+First we create a workflow that combines all the models and the receipes to control the data. Then we use that consistent pattern to fit our model. First let's compare the models one time. Add comments to the following code chunk to describe what each step is doing. Feel free to run code.
+
+```{r}
+# First the logistic regression
+
+log_wf <- workflow() %>%
+  add_recipe(glm_rec) %>%
+  add_model(log_md) 
+
+log_fit<-log_wf %>%
+  fit(surv_train_df)
+
+log_test<-surv_test_df |>
+  mutate(predict(log_fit, new_data = surv_test_df)) |> 
+  mutate(predict(log_fit,new_data = surv_test_df, type='prob'))
+
+table(log_test$survived, log_test$.pred_class)
+
+```
+
+
+Now fill in the following code chunk to fit the random forest model. Create a table (or sometimes called a confusion matrix) that shows the predicted values versus the actual values.
+
+
+```{r}
+lasso_wf<-workflow() %>%
+  add_model(lasso_md) %>%
+  add_recipe(lasso_rec)
+
+lasso_fit<-lasso_wf |>
+  fit(surv_train_df)
+
+
+lasso_test<-surv_test_df |>
+  mutate(predict(lasso_fit, new_data = surv_test_df)) |> 
+  mutate(predict(lasso_fit,new_data = surv_test_df, type='prob'))
+
+table(lasso_test$survived, lasso_test$.pred_class)
+
+```
+
+### Evaluate Performance
+
+Measure the accuracy using the `accuracy` function from the `yardstick` package for each model.
+
+```{r}
+log_test |> 
+  accuracy(truth = survived, estimate = .pred_class)
+
+lasso_test |>
+  accuracy(truth = survived, estimate = .pred_class)
+```
+
+
+Calculate the `ROC AUC` for each model.
+
+```{r}
+### Calculate area under curve - 50% is random guessing, 100% is perfect classifier
+log_test |> 
+  yardstick::roc_auc(truth = survived, .pred_0)
+
+lasso_test |> 
+  yardstick::roc_auc(truth = survived, .pred_0)
+```
+
+
+### Model Selection
+
+One run of the model is not enough to determine which model is better. We need to run the model multiple times to determine which model is better. We can use cross-validation to determine which model is better. Instead of for loops or purrr, tidymodels as built in functions to do this for us. 
+
+
+
+```{r}
+set.seed(12)
+
+folds<-vfold_cv(surv_train_df, v=10, strata = survived)
+
+log_fit_folds<- log_fit |> 
+  fit_resamples(folds)
+
+collect_metrics(log_fit_folds)
+
+lasso_res<-lasso_wf %>%
+  fit_resamples(folds)
+
+collect_metrics(lasso_res)
+```
+
+Which model do we choose?
+
+Let's look at the actual models to get a better understanding.
+
+```{r}
+log_fit |> 
+  extract_fit_parsnip()|> 
+  tidy()
+
+lasso_fit |>
+  extract_fit_parsnip() |> 
+  tidy()
+```
+Lasso set many of the parameters to zero. How do you interpret this model? Why would you want to use as opposed to simple logistic regression?
+
+### Finalize Model
+
+We will finalize the model by fitting the model to the entire dataset. 
+
+```{r}
+final_log<-log_wf |>
+  last_fit(surv_split)
+```
+
+
+## Interpret and Visualize Results
+
+Everything is stored in a `workflow` object. We can extract the coefficients from the logistic regression model using `extract_fit_parsnip`. The `tidy` function will make the output more readable. Describe the coefficients and what they mean. Create a clean table of the model output.
+
+```{r}
+
+final_log |>
+  extract_fit_parsnip() |>
+  tidy() |> 
+  mutate(odds=exp(estimate),
+         prob=odds/(1+estimate))
+```
+
+Please give this a go on your own with the post-lab exercise. I will be walking around to assist.
+
+
+## Tuning example
+
+This just shows how to hypertune the `glmnet` penalty parameter. We'll cover more when we get to random forests with Yutian.
+
+```{r}
+set.seed(123)
+
+lambda_grid <- grid_regular(penalty(), levels = 50)
+
+lasso_md_tune<- logistic_reg(penalty = tune(),mixture=1) %>%
+  set_engine("glmnet")
+
+lasso_wf<-workflow() %>%
+  add_model(lasso_md_tune) %>%
+  add_recipe(lasso_rec)
+
+
+set.seed(2020)
+lasso_grid <- tune_grid(
+  lasso_wf,
+  resamples = folds,
+  grid = lambda_grid
+)
+
+lasso_grid %>%
+  collect_metrics()
+
+lowest_rmse <- lasso_grid %>%
+  select_best(metric="roc_auc") #use this metric
+```
+
+

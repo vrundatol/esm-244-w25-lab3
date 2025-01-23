@@ -1,0 +1,28 @@
+---
+title: "Lab 3: Post Lab"
+format: html
+---
+
+## Data Load
+
+```{r}
+#import data from this website
+
+wine_quality <- readr::read_delim("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv",delim=';')
+ 
+```
+
+
+## Design a research question
+
+Examine the data to come up with an interesting research question based on the wine data. It is a large collection of wine attributes and quality ratings to indicate the sommlier's rating of the wine.
+
+## Explore the data
+
+Create some exploratory tables or charts to help you better understand possible relationships
+
+## Use a Tidymodel framework to conduct your analysis.
+
+## Visualize
+
+Present your final results and upgrade this document's YAML to a professional level quality.
