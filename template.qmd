@@ -18,7 +18,24 @@ t_df<-read_csv(here("data", "titanic_survival.csv"))
 
 Write a description of how you go about applying machine learning problems. If you drew a diagram, share with a neighbor and discuss.
 
-
+1. Identify Research Question
+2. Gather Data
+3. Look at the data
+4. Clean the data
+5. Exploratory Data Analysis
+6. Develop a Hypothesis
+7. Methodology and Pseudo Code
+8. Choosing Metrics
+9. Data split into testing or training
+10. Build your model
+  a. Create model options, with variable options
+  b. Data pre-processing
+  c. Train model
+  d. Tune your model
+  e. Evaluate performance
+  f. Model Selection (CV fold)
+11. Finalize the model (aka train it on whole dataset)
+12. Interpret results/ Visualize/ Communicate
 
 
 ## Tidymodels Overview
@@ -41,6 +58,48 @@ In real life, we would have to go out and collect the data. Today, we will use t
 
 Take 15 minutes to explore the data. Are there any immediate changes to the data that we need to change? What relationships can you see through graphs? What variables could be of interest to predict survival of passengers on the Titanic?
 
+```{r}
+
+class_fare_plot <- ggplot(t_df, aes(x = as.factor(pclass), y = fare)) + 
+  geom_point() +
+  theme_bw() +
+  labs(
+    title = "Relationship between Class and Fare",
+    x = "Class",
+    y = "Fare"
+  )
+
+class_fare_plot
+
+```
+
+```{r}
+
+t_sex_survival <- t_df |>
+  select(survived, sex) |>
+  group_by(sex, survived) |>
+  summarise(survival = n())
+
+sex_survival_plot <- ggplot(t_sex_survival, aes(x = sex, y = survival)) + 
+  geom_bar()
+
+sex_survival_plot
+
+t_df_clean <- t_df |>
+  select(passenger_id, survived, pclass, sex, age, fare) |>
+  mutate(
+    survived = as.factor(survived),
+    pclass = as.factor(pclass),
+    )
+  
+
+# Try Histogram for Age
+
+# Stacked Bar graph for class based on survival
+
+# Variables to include class, age?, sex, embark, fare
+
+```
 
 
 ## Data Split
@@ -48,12 +107,22 @@ Take 15 minutes to explore the data. Are there any immediate changes to the data
 We will set aside (“partition”) a portion of the data for building and comparing our models (80%), and a portion for testing our models after we’ve selected the best one (20%). NOT the same as folds - that will happen in the training/validation step.
 
 ```{r}
+
+surv_df <- t_df %>%
+  mutate(survived = factor(survived),   ### categorical outcome variables need to be factors
+         pclass   = factor(pclass)) %>% ### turn some predictors to factor
+  select(-cabin, -ticket) ### lots of NAs here - and not likely to be very helpful
+
 ### Check balance of survived column
-surv_df %>%
+surv_df %>% 
   group_by(survived) %>%
   summarize(n = n()) %>%
   ungroup() %>%
   mutate(prop = n / sum(n))
+
+surv_df
+
+# Maintain balance of survival in the training and test sets (62% died, 38% survived)
 ```
 
 
@@ -106,16 +175,18 @@ We use receipes to convert our data into the format best suited to our chosen mo
 We're going to build two models: a logistic regression and a lasso logistic regression model. 
 
 ```{r}
-glm_rec<-recipe(survived ~ sex + pclass, data = surv_train_df)
+glm_rec<-recipe(survived ~ sex + pclass, data = surv_train_df) # try adding other vars here
+
+glm_rec
 
 # steps we need to do to prepare data for lasso
 
-lasso_rec<-recipe(survived~.,data=surv_train_df) %>%
-  update_role(passenger_id, new_role = "ID") %>%
-  step_rm(name,age) %>%
-  step_unknown(all_nominal(),-all_outcomes()) |> 
-  step_dummy(all_nominal(),-all_outcomes()) |>
-  step_zv(all_numeric(),-all_outcomes()) |> 
+lasso_rec<-recipe(survived~.,data=surv_train_df) %>% #~ means where to get the data from,. means all vars
+  update_role(passenger_id, new_role = "ID") %>% # not a dependent var or a predictor, just a tag
+  step_rm(name,age) %>% # untouched
+  step_unknown(all_nominal(),-all_outcomes()) |> # get rid of unknowns
+  step_dummy(all_nominal(),-all_outcomes()) |> # get rid of dummy variables
+  step_zv(all_numeric(),-all_outcomes()) |> # get rid of zero variance variables
   step_normalize(all_numeric(),-all_outcomes())
 
 ```
@@ -128,7 +199,7 @@ First we create a workflow that combines all the models and the receipes to cont
 ```{r}
 # First the logistic regression
 
-log_wf <- workflow() %>%
+log_wf <- workflow() %>% # piece together 
   add_recipe(glm_rec) %>%
   add_model(log_md) 
 
@@ -149,6 +220,18 @@ Now fill in the following code chunk to fit the lasso model. Create a table (or 
 
 ```{r}
 
+lasso_wf <- workflow() %>% # piece together 
+  add_recipe(lasso_rec) %>%
+  add_model(lasso_md) 
+
+lasso_fit<-lasso_wf %>%
+  fit(surv_train_df)
+
+lasso_test<-surv_test_df |>
+  mutate(predict(lasso_fit, new_data = surv_test_df)) |> 
+  mutate(predict(lasso_fit,new_data = surv_test_df, type='prob'))
+
+table(lasso_test$survived, lasso_test$.pred_class)
 
 ```
 
@@ -169,6 +252,13 @@ Calculate the `ROC AUC` for each model. Use the `roc_auc` function from yardstic
 
 ```{r}
 
+# roc auc cares about the probability along with the accuracy
+
+log_test |>
+  roc_auc(truth = survived, .pred_0)
+
+lasso_test |>
+  roc_auc(truth = survived, .pred_0)
 ```
 
 
@@ -206,6 +296,12 @@ log_fit |>
 lasso_fit |>
   extract_fit_parsnip() |> 
   tidy()
+
+# Intercept coefficient is not relevant for logistic regression
+
+# Lasso made it slightly more predictive by considering all variables.
+# 0 implies that the var is not relevant
+# pclass3 -0.472 implies transition from class 1 to 2 is not as significant as from 2 to 3.
 ```
 Lasso set many of the parameters to zero. How do you interpret this model? Why would you want to use as opposed to simple logistic regression?
 
@@ -216,6 +312,9 @@ We will finalize the model by fitting the model to the entire dataset.
 ```{r}
 final_log<-log_wf |>
   last_fit(surv_split)
+
+useable_final_log <- final_log |>
+  extract_fit_parsnip()
 ```
 
 
@@ -229,7 +328,7 @@ final_log |>
   extract_fit_parsnip() |>
   tidy() |> 
   mutate(odds=exp(estimate),
-         prob=odds/(1+estimate))
+         prob=odds/(1+odds))
 ```
 
 Please give this a go on your own with the post-lab exercise. I will be walking around to assist.
