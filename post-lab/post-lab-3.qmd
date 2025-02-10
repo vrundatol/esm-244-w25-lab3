@@ -17,9 +17,29 @@ wine_quality <- readr::read_delim("https://archive.ics.uci.edu/ml/machine-learni
 
 Examine the data to come up with an interesting research question based on the wine data. It is a large collection of wine attributes and quality ratings to indicate the sommlier's rating of the wine.
 
+**What top 3 attributes determine the quality of wine?**
+
 ## Explore the data
 
 Create some exploratory tables or charts to help you better understand possible relationships
+
+```{r}
+
+wine_quality_citric_plot <- wine_quality |>
+  ggplot(aes(y = quality, x = `citric acid`)) +
+  geom_point()
+
+wine_quality_citric_plot
+
+wine_quality_sugar_plot <- wine_quality |>
+  ggplot(aes(y = quality, x = `residual sugar`))+
+  geom_point()
+
+wine_quality_sugar_plot
+
+```
+
+
 
 ## Use a Tidymodel framework to conduct your analysis.
 
